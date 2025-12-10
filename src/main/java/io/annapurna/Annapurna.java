@@ -4,23 +4,37 @@ import io.annapurna.generator.EquitySwapGenerator;
 import io.annapurna.generator.TradeGenerator;
 import io.annapurna.model.Trade;
 
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
 /**
  * Main entry point for the Annapurna synthetic trade data generator.
  *
- *
- *
+ * <p>Simple usage:
+ * <pre>
  * Trade trade = Annapurna.generateOne();
+ * </pre>
  *
+ * <p>Bulk generation with defaults:
+ * <pre>
+ * List&lt;Trade&gt; trades = Annapurna.generate(10000);
+ * </pre>
  *
- * Advanced usage (coming soon):
- *
+ * <p>Advanced configuration:
+ * <pre>
  * List&lt;Trade&gt; trades = Annapurna.builder()
  *     .tradeTypes()
- *         .equitySwap(100)
- *     .count(1000)
+ *         .equitySwap(30)
+ *         .interestRateSwap(30)
+ *         .fxForward(20)
+ *         .option(15)
+ *         .cds(5)
+ *     .count(100000)
+ *     .parallelism(8)
  *     .build()
  *     .generate();
- *
+ * </pre>
  */
 public class Annapurna {
 
@@ -35,22 +49,25 @@ public class Annapurna {
     }
 
     /**
-     * Create a new builder for advanced configuration.
-     * (Coming soon in Phase 3)
+     * Generate multiple trades with default equal distribution.
+     * Uses all CPU cores for parallel generation.
      *
-     * @return AnnapurnaBuilder instance
+     * @param count Number of trades to generate
+     * @return List of mixed trade types
      */
-    public static Object builder() {
-        throw new UnsupportedOperationException("Builder pattern coming in Phase 3");
+    public static List<Trade> generate(int count) {
+        return builder()
+                .count(count)
+                .build()
+                .generate();
     }
 
     /**
-     * Quick create method for simple use cases.
-     * (Coming soon in Phase 3)
+     * Create a builder for advanced configuration.
      *
-     * @return A simple generator instance
+     * @return AnnapurnaBuilder instance for fluent configuration
      */
-    public static Object create() {
-        throw new UnsupportedOperationException("Fluent API coming in Phase 3");
+    public static AnnapurnaBuilder builder() {
+        return new AnnapurnaBuilder();
     }
 }

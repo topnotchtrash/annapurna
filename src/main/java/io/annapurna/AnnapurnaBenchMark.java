@@ -42,7 +42,7 @@ public class AnnapurnaBenchMark {
 
         for (int i = 0; i < TRADE_COUNT; i++) {
             Trade t = generator.generate();
-            
+
         }
 
         long endTime = System.currentTimeMillis();
