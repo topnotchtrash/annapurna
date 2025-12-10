@@ -10,10 +10,12 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class FXForwardGenerator implements TradeGenerator {
 
     private final Random random;
+    private final boolean useThreadLocal;
     private final Faker faker;
 
     private static final String[] TIER1_BANKS = {
@@ -43,20 +45,43 @@ public class FXForwardGenerator implements TradeGenerator {
 
     private static final int[] TENORS_MONTHS = { 1, 3, 3, 3, 6, 12 };
 
+    // Default constructor: Production mode (ThreadLocalRandom)
     public FXForwardGenerator() {
-        this.random = new Random();
+        this.random = null;
+        this.useThreadLocal = true;
         this.faker = new Faker();
     }
 
+    // Seeded constructor: Test mode (deterministic)
     public FXForwardGenerator(long seed) {
         this.random = new Random(seed);
+        this.useThreadLocal = false;
         this.faker = new Faker(new Random(seed));
+    }
+
+    // Helper methods for random generation
+    private int nextInt(int bound) {
+        return useThreadLocal ?
+                ThreadLocalRandom.current().nextInt(bound) :
+                random.nextInt(bound);
+    }
+
+    private double nextDouble() {
+        return useThreadLocal ?
+                ThreadLocalRandom.current().nextDouble() :
+                random.nextDouble();
+    }
+
+    private boolean nextBoolean() {
+        return useThreadLocal ?
+                ThreadLocalRandom.current().nextBoolean() :
+                random.nextBoolean();
     }
 
     @Override
     public Trade generate() {
         LocalDate tradeDate = generateTradeDate();
-        int tenorMonths = TENORS_MONTHS[random.nextInt(TENORS_MONTHS.length)];
+        int tenorMonths = TENORS_MONTHS[nextInt(TENORS_MONTHS.length)];
 
         // 1. Select Pair
         CurrencyPairConfig pair = selectCurrencyPair();
@@ -92,7 +117,7 @@ public class FXForwardGenerator implements TradeGenerator {
                 .spotRate(spotRate)
                 .forwardRate(forwardRate)
                 .forwardPoints(forwardPoints)
-                .direction(random.nextBoolean() ? "BUY" : "SELL")
+                .direction(nextBoolean() ? "BUY" : "SELL")
                 // FIX: All these pairs are Physical. NDFs are only for restricted currencies.
                 .settlementType("PHYSICAL")
                 .build();
@@ -105,12 +130,12 @@ public class FXForwardGenerator implements TradeGenerator {
 
     private String generateTradeId(LocalDate tradeDate) {
         String date = tradeDate.toString().replace("-", "");
-        int sequence = random.nextInt(100000);
+        int sequence = nextInt(100000);
         return String.format("ANNAPURNA-FXF-%s-%05d", date, sequence);
     }
 
     private LocalDate generateTradeDate() {
-        LocalDate date = LocalDate.now().minusDays(random.nextInt(365));
+        LocalDate date = LocalDate.now().minusDays(nextInt(365));
         while (date.getDayOfWeek().getValue() >= 6) {
             date = date.minusDays(1);
         }
@@ -120,7 +145,7 @@ public class FXForwardGenerator implements TradeGenerator {
     private BigDecimal generateNotional() {
         double logMin = Math.log(500_000);
         double logMax = Math.log(200_000_000);
-        double logValue = logMin + (logMax - logMin) * random.nextDouble();
+        double logValue = logMin + (logMax - logMin) * nextDouble();
         double notional = Math.exp(logValue);
         long hundredK = Math.round(notional / 100_000);
         return BigDecimal.valueOf(hundredK * 100_000);
@@ -128,11 +153,11 @@ public class FXForwardGenerator implements TradeGenerator {
 
     private String selectCounterparty(BigDecimal notional) {
         if (notional.compareTo(BigDecimal.valueOf(50_000_000)) > 0) {
-            return TIER1_BANKS[random.nextInt(TIER1_BANKS.length)];
+            return TIER1_BANKS[nextInt(TIER1_BANKS.length)];
         } else {
-            return random.nextBoolean() ?
-                    TIER1_BANKS[random.nextInt(TIER1_BANKS.length)] :
-                    TIER2_BANKS[random.nextInt(TIER2_BANKS.length)];
+            return nextBoolean() ?
+                    TIER1_BANKS[nextInt(TIER1_BANKS.length)] :
+                    TIER2_BANKS[nextInt(TIER2_BANKS.length)];
         }
     }
 
@@ -140,7 +165,7 @@ public class FXForwardGenerator implements TradeGenerator {
         int totalWeight = 0;
         for (CurrencyPairConfig pair : CURRENCY_PAIRS) totalWeight += pair.weight;
 
-        int randomWeight = random.nextInt(totalWeight);
+        int randomWeight = nextInt(totalWeight);
         int currentWeight = 0;
 
         for (CurrencyPairConfig pair : CURRENCY_PAIRS) {
@@ -152,14 +177,14 @@ public class FXForwardGenerator implements TradeGenerator {
 
     private BigDecimal generateSpotRate(CurrencyPairConfig pair) {
         double range = pair.spotRateMax - pair.spotRateMin;
-        double rate = pair.spotRateMin + (random.nextDouble() * range);
+        double rate = pair.spotRateMin + (nextDouble() * range);
         int scale = isJPYPair(pair) ? 2 : 4;
         return BigDecimal.valueOf(rate).setScale(scale, RoundingMode.HALF_UP);
     }
 
     private BigDecimal generateForwardRate(BigDecimal spotRate, int tenorMonths) {
         // Forward points typically small (-1% to +2% annualized)
-        double annualDiff = -0.01 + (random.nextDouble() * 0.03);
+        double annualDiff = -0.01 + (nextDouble() * 0.03);
         double adjustment = spotRate.doubleValue() * annualDiff * (tenorMonths / 12.0);
 
         BigDecimal forwardRate = spotRate.add(BigDecimal.valueOf(adjustment));
@@ -182,7 +207,7 @@ public class FXForwardGenerator implements TradeGenerator {
 
     private String generateBook(CurrencyPairConfig pair) {
         if (pair.baseCurrency == Currency.EUR || pair.quoteCurrency == Currency.EUR) {
-            return random.nextBoolean() ? "FX_EMEA" : "FX_LON";
+            return nextBoolean() ? "FX_EMEA" : "FX_LON";
         } else if (isJPYPair(pair) || pair.baseCurrency == Currency.AUD) {
             return "FX_APAC";
         } else {

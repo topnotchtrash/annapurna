@@ -10,10 +10,12 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class CDSGenerator implements TradeGenerator {
 
     private final Random random;
+    private final boolean useThreadLocal;
     private final Faker faker;
 
     private static final String[] TIER1_BANKS = {
@@ -50,20 +52,43 @@ public class CDSGenerator implements TradeGenerator {
     // Restructuring Clauses
     private static final String[] RESTRUCTURING_CLAUSES = { "CR", "MM", "XR" };
 
+    // Default constructor: Production mode (ThreadLocalRandom)
     public CDSGenerator() {
-        this.random = new Random();
+        this.random = null;
+        this.useThreadLocal = true;
         this.faker = new Faker();
     }
 
+    // Seeded constructor: Test mode (deterministic)
     public CDSGenerator(long seed) {
         this.random = new Random(seed);
+        this.useThreadLocal = false;
         this.faker = new Faker(new Random(seed));
+    }
+
+    // Helper methods for random generation
+    private int nextInt(int bound) {
+        return useThreadLocal ?
+                ThreadLocalRandom.current().nextInt(bound) :
+                random.nextInt(bound);
+    }
+
+    private double nextDouble() {
+        return useThreadLocal ?
+                ThreadLocalRandom.current().nextDouble() :
+                random.nextDouble();
+    }
+
+    private boolean nextBoolean() {
+        return useThreadLocal ?
+                ThreadLocalRandom.current().nextBoolean() :
+                random.nextBoolean();
     }
 
     @Override
     public Trade generate() {
         LocalDate tradeDate = generateTradeDate();
-        int tenorYears = TENORS_YEARS[random.nextInt(TENORS_YEARS.length)];
+        int tenorYears = TENORS_YEARS[nextInt(TENORS_YEARS.length)];
 
         // 1. Select Entity & Counterparty
         ReferenceEntityConfig entity = selectReferenceEntity();
@@ -84,11 +109,11 @@ public class CDSGenerator implements TradeGenerator {
                 .tradeId(generateTradeId(tradeDate))
                 .tradeDate(tradeDate)
                 .settlementDate(tradeDate.plusDays(1)) // T+1 is standard for CDS today
-                .maturityDate(tradeDate.plusYears(tenorYears)) // Note: Real CDS roll on Mar/Jun/Sep/Dec 20th
+                .maturityDate(tradeDate.plusYears(tenorYears))
                 .notional(notional)
                 .currency(Currency.USD)
                 .counterparty(counterparty)
-                .book(generateBook(entity)) // FIX: Book depends on Rating/Sector
+                .book(generateBook(entity)) // Book depends on Rating/Sector
                 .trader(generateTrader())
                 .referenceEntity(entity.name)
                 .referenceTicker(entity.ticker)
@@ -98,8 +123,8 @@ public class CDSGenerator implements TradeGenerator {
                 .upfrontPayment(upfrontPayment)
                 .recoveryRate(recoveryRate)
                 .paymentFrequency("QUARTERLY")
-                .position(random.nextBoolean() ? "PROTECTION_BUYER" : "PROTECTION_SELLER")
-                .restructuringClause(RESTRUCTURING_CLAUSES[random.nextInt(RESTRUCTURING_CLAUSES.length)])
+                .position(nextBoolean() ? "PROTECTION_BUYER" : "PROTECTION_SELLER")
+                .restructuringClause(RESTRUCTURING_CLAUSES[nextInt(RESTRUCTURING_CLAUSES.length)])
                 .seniority(seniority)
                 .build();
     }
@@ -111,33 +136,41 @@ public class CDSGenerator implements TradeGenerator {
 
     private String generateTradeId(LocalDate tradeDate) {
         String date = tradeDate.toString().replace("-", "");
-        int sequence = random.nextInt(100000);
+        int sequence = nextInt(100000);
         return String.format("ANNAPURNA-CDS-%s-%05d", date, sequence);
     }
 
     private LocalDate generateTradeDate() {
-        LocalDate date = LocalDate.now().minusDays(random.nextInt(365));
-        while (date.getDayOfWeek().getValue() >= 6) date = date.minusDays(1);
+        LocalDate date = LocalDate.now().minusDays(nextInt(365));
+        while (date.getDayOfWeek().getValue() >= 6) {
+            date = date.minusDays(1);
+        }
         return date;
     }
 
     private BigDecimal generateNotional() {
         double logMin = Math.log(5_000_000);
         double logMax = Math.log(100_000_000);
-        double logValue = logMin + (logMax - logMin) * random.nextDouble();
+        double logValue = logMin + (logMax - logMin) * nextDouble();
         long millions = Math.round(Math.exp(logValue) / 1_000_000);
         return BigDecimal.valueOf(millions * 1_000_000);
     }
 
     private String selectCounterparty(BigDecimal notional) {
-        if (notional.compareTo(BigDecimal.valueOf(50_000_000)) > 0) return TIER1_BANKS[random.nextInt(TIER1_BANKS.length)];
-        return random.nextBoolean() ? TIER1_BANKS[random.nextInt(TIER1_BANKS.length)] : TIER2_BANKS[random.nextInt(TIER2_BANKS.length)];
+        if (notional.compareTo(BigDecimal.valueOf(50_000_000)) > 0) {
+            return TIER1_BANKS[nextInt(TIER1_BANKS.length)];
+        } else {
+            return nextBoolean() ?
+                    TIER1_BANKS[nextInt(TIER1_BANKS.length)] :
+                    TIER2_BANKS[nextInt(TIER2_BANKS.length)];
+        }
     }
 
     private ReferenceEntityConfig selectReferenceEntity() {
         int totalWeight = 0;
         for (ReferenceEntityConfig e : REFERENCE_ENTITIES) totalWeight += e.weight;
-        int r = random.nextInt(totalWeight);
+
+        int r = nextInt(totalWeight);
         int current = 0;
         for (ReferenceEntityConfig e : REFERENCE_ENTITIES) {
             current += e.weight;
@@ -148,41 +181,43 @@ public class CDSGenerator implements TradeGenerator {
 
     private Integer generateSpread(ReferenceEntityConfig entity) {
         int range = entity.spreadMax - entity.spreadMin;
-        return entity.spreadMin + random.nextInt(range + 1);
+        return entity.spreadMin + nextInt(range + 1);
     }
 
     private BigDecimal generateUpfrontPayment(String creditRating, BigDecimal notional) {
         double upfrontPercent = 0;
         // Distressed names require massive upfront points
-        if (creditRating.startsWith("C")) upfrontPercent = 0.15 + random.nextDouble() * 0.25; // 15-40%
-        else if (creditRating.equals("B")) {
-            if (random.nextDouble() < 0.2) upfrontPercent = 0.01 + random.nextDouble() * 0.04; // Occasional points
+        if (creditRating.startsWith("C")) {
+            upfrontPercent = 0.15 + nextDouble() * 0.25; // 15-40%
+        } else if (creditRating.equals("B")) {
+            if (nextDouble() < 0.2) {
+                upfrontPercent = 0.01 + nextDouble() * 0.04; // Occasional points
+            }
         }
         return notional.multiply(BigDecimal.valueOf(upfrontPercent)).setScale(2, RoundingMode.HALF_UP);
     }
 
-    // FIX: Seniority Logic
     private String generateSeniority(String sector) {
         if ("SOVEREIGN".equals(sector)) return "SENIOR_SECURED"; // Sovereigns technically different, but usually top tier
+
         // Corporates
-        double r = random.nextDouble();
+        double r = nextDouble();
         if (r < 0.90) return "SENIOR_UNSECURED"; // Standard Reference Obligation
         if (r < 0.95) return "SENIOR_SECURED";
         return "SUBORDINATED";
     }
 
     private BigDecimal generateRecoveryRate(String seniority, String sector) {
-        if ("SOVEREIGN".equals(sector)) return BigDecimal.valueOf(25 + random.nextInt(15)); // Sovereigns ~25-40%
+        if ("SOVEREIGN".equals(sector)) return BigDecimal.valueOf(25 + nextInt(15)); // Sovereigns ~25-40%
 
         switch (seniority) {
-            case "SENIOR_SECURED": return BigDecimal.valueOf(60 + random.nextInt(10));
+            case "SENIOR_SECURED": return BigDecimal.valueOf(60 + nextInt(10));
             case "SENIOR_UNSECURED": return BigDecimal.valueOf(40); // Market Standard
-            case "SUBORDINATED": return BigDecimal.valueOf(20 + random.nextInt(10));
+            case "SUBORDINATED": return BigDecimal.valueOf(20 + nextInt(10));
             default: return BigDecimal.valueOf(40);
         }
     }
 
-    // FIX: Book Logic based on Rating
     private String generateBook(ReferenceEntityConfig entity) {
         if ("SOVEREIGN".equals(entity.sector)) return "CREDIT_EM"; // Emerging Markets
 

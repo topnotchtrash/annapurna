@@ -10,10 +10,12 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class EquityOptionGenerator implements TradeGenerator {
 
     private final Random random;
+    private final boolean useThreadLocal;
     private final Faker faker;
 
     private static final String[] TIER1_BANKS = {
@@ -40,14 +42,44 @@ public class EquityOptionGenerator implements TradeGenerator {
     // Contract size distribution
     private static final int[] CONTRACT_SIZES = { 1, 1, 5, 5, 10, 10, 25, 50, 100, 200 };
 
+    private static final ExpiryConfig[] EXPIRY_CONFIGS = {
+            new ExpiryConfig("WEEKLY", 7, 20),
+            new ExpiryConfig("MONTHLY", 30, 50),
+            new ExpiryConfig("QUARTERLY", 90, 20),
+            new ExpiryConfig("LEAPS", 365, 10)
+    };
+
+    // Default constructor: Production mode (ThreadLocalRandom)
     public EquityOptionGenerator() {
-        this.random = new Random();
+        this.random = null;
+        this.useThreadLocal = true;
         this.faker = new Faker();
     }
 
+    // Seeded constructor: Test mode (deterministic)
     public EquityOptionGenerator(long seed) {
         this.random = new Random(seed);
+        this.useThreadLocal = false;
         this.faker = new Faker(new Random(seed));
+    }
+
+    // Helper methods for random generation
+    private int nextInt(int bound) {
+        return useThreadLocal ?
+                ThreadLocalRandom.current().nextInt(bound) :
+                random.nextInt(bound);
+    }
+
+    private double nextDouble() {
+        return useThreadLocal ?
+                ThreadLocalRandom.current().nextDouble() :
+                random.nextDouble();
+    }
+
+    private boolean nextBoolean() {
+        return useThreadLocal ?
+                ThreadLocalRandom.current().nextBoolean() :
+                random.nextBoolean();
     }
 
     @Override
@@ -63,7 +95,7 @@ public class EquityOptionGenerator implements TradeGenerator {
         ExpiryConfig expiryConfig = selectExpiry();
         LocalDate expiryDate = calculateExpiryDate(tradeDate, expiryConfig);
         String moneyness = selectMoneyness();
-        String optionType = OPTION_TYPES[random.nextInt(OPTION_TYPES.length)];
+        String optionType = OPTION_TYPES[nextInt(OPTION_TYPES.length)];
 
         BigDecimal strikePrice = calculateStrike(spotPrice, moneyness, optionType);
 
@@ -72,11 +104,10 @@ public class EquityOptionGenerator implements TradeGenerator {
         BigDecimal premium = calculatePremium(spotPrice, strikePrice, daysToExpiry, optionType, impliedVol);
 
         // 4. Sizing
-        int contracts = CONTRACT_SIZES[random.nextInt(CONTRACT_SIZES.length)];
+        int contracts = CONTRACT_SIZES[nextInt(CONTRACT_SIZES.length)];
         BigDecimal quantity = BigDecimal.valueOf(contracts * 100); // 100 shares per contract
 
         // Effective Notional = Spot Price * Total Shares (Risk Exposure)
-        // Note: Some systems use Strike * Quantity, but Spot * Quantity is standard for "Delta 1 Equivalent"
         BigDecimal notional = spotPrice.multiply(quantity);
 
         String counterparty = selectCounterparty(notional);
@@ -84,12 +115,12 @@ public class EquityOptionGenerator implements TradeGenerator {
         return EquityOption.builder()
                 .tradeId(generateTradeId(tradeDate))
                 .tradeDate(tradeDate)
-                .settlementDate(tradeDate.plusDays(1)) // Correct: Options settle T+1
+                .settlementDate(tradeDate.plusDays(1)) // Options settle T+1
                 .maturityDate(expiryDate)
                 .notional(notional)
-                .currency(Currency.USD) // All listed assets are USD
+                .currency(Currency.USD)
                 .counterparty(counterparty)
-                .book(generateBook(underlying)) // FIX: Book matches Asset Region
+                .book(generateBook(underlying)) // Book matches Asset Region
                 .trader(generateTrader())
                 .underlyingAsset(underlying)
                 .optionType(optionType)
@@ -101,7 +132,7 @@ public class EquityOptionGenerator implements TradeGenerator {
                 .expiryDate(expiryDate)
                 .exerciseStyle(selectExerciseStyle(underlying))
                 .moneyness(moneyness)
-                .position(random.nextBoolean() ? "LONG" : "SHORT")
+                .position(nextBoolean() ? "LONG" : "SHORT")
                 .impliedVolatility(impliedVol)
                 .build();
     }
@@ -113,12 +144,12 @@ public class EquityOptionGenerator implements TradeGenerator {
 
     private String generateTradeId(LocalDate tradeDate) {
         String date = tradeDate.toString().replace("-", "");
-        int sequence = random.nextInt(100000);
+        int sequence = nextInt(100000);
         return String.format("ANNAPURNA-OPT-%s-%05d", date, sequence);
     }
 
     private LocalDate generateTradeDate() {
-        LocalDate date = LocalDate.now().minusDays(random.nextInt(365));
+        LocalDate date = LocalDate.now().minusDays(nextInt(365));
         while (date.getDayOfWeek().getValue() >= 6) {
             date = date.minusDays(1);
         }
@@ -126,21 +157,21 @@ public class EquityOptionGenerator implements TradeGenerator {
     }
 
     private String selectUnderlying() {
-        return UNDERLYING_ASSETS[random.nextInt(UNDERLYING_ASSETS.length)];
+        return UNDERLYING_ASSETS[nextInt(UNDERLYING_ASSETS.length)];
     }
 
     private BigDecimal generateSpotPrice(String underlying) {
         double price;
-        if ("SPX".equals(underlying)) price = 4000 + random.nextDouble() * 1000;
-        else if ("NDX".equals(underlying)) price = 15000 + random.nextDouble() * 2000;
-        else price = 100 + random.nextDouble() * 300;
+        if ("SPX".equals(underlying)) price = 4000 + nextDouble() * 1000;
+        else if ("NDX".equals(underlying)) price = 15000 + nextDouble() * 2000;
+        else price = 100 + nextDouble() * 300;
         return BigDecimal.valueOf(price).setScale(2, RoundingMode.HALF_UP);
     }
 
     private ExpiryConfig selectExpiry() {
         int totalWeight = 0;
         for (ExpiryConfig c : EXPIRY_CONFIGS) totalWeight += c.weight;
-        int r = random.nextInt(totalWeight);
+        int r = nextInt(totalWeight);
         int current = 0;
         for (ExpiryConfig c : EXPIRY_CONFIGS) {
             current += c.weight;
@@ -159,7 +190,7 @@ public class EquityOptionGenerator implements TradeGenerator {
     }
 
     private String selectMoneyness() {
-        double rand = random.nextDouble();
+        double rand = nextDouble();
         if (rand < 0.40) return "ATM";
         else if (rand < 0.80) return "OTM";
         else return "ITM";
@@ -171,15 +202,15 @@ public class EquityOptionGenerator implements TradeGenerator {
 
         switch (moneyness) {
             case "ATM":
-                strike = spot * (0.98 + random.nextDouble() * 0.04);
+                strike = spot * (0.98 + nextDouble() * 0.04);
                 break;
             case "OTM":
-                if ("CALL".equals(optionType)) strike = spot * (1.02 + random.nextDouble() * 0.13); // Call > Spot
-                else strike = spot * (0.85 + random.nextDouble() * 0.13); // Put < Spot
+                if ("CALL".equals(optionType)) strike = spot * (1.02 + nextDouble() * 0.13); // Call > Spot
+                else strike = spot * (0.85 + nextDouble() * 0.13); // Put < Spot
                 break;
             case "ITM":
-                if ("CALL".equals(optionType)) strike = spot * (0.90 + random.nextDouble() * 0.08); // Call < Spot
-                else strike = spot * (1.02 + random.nextDouble() * 0.08); // Put > Spot
+                if ("CALL".equals(optionType)) strike = spot * (0.90 + nextDouble() * 0.08); // Call < Spot
+                else strike = spot * (1.02 + nextDouble() * 0.08); // Put > Spot
                 break;
             default: strike = spot;
         }
@@ -192,7 +223,6 @@ public class EquityOptionGenerator implements TradeGenerator {
         return BigDecimal.valueOf(strike).setScale(2, RoundingMode.HALF_UP);
     }
 
-    // Improved Premium Calc using Volatility Input
     private BigDecimal calculatePremium(BigDecimal spotPrice, BigDecimal strikePrice,
                                         int daysToExpiry, String optionType, BigDecimal vol) {
         double spot = spotPrice.doubleValue();
@@ -204,22 +234,23 @@ public class EquityOptionGenerator implements TradeGenerator {
                 Math.max(0, spot - strike) : Math.max(0, strike - spot);
 
         // 2. Time Value (Proxy for Black-Scholes)
-        // Time value increases with Volatility and Sqrt(Time)
         double timeValue = (spot * 0.4) * volatility * Math.sqrt(daysToExpiry / 365.0);
 
         // At The Money options have highest time value, OTM/ITM have less
         double moneynessFactor = 1.0 - (Math.abs(spot - strike) / spot);
         timeValue *= Math.max(0.1, moneynessFactor);
 
-        double premium = intrinsic + timeValue;
+        // Add randomness via helper
+        double premium = (intrinsic + timeValue) * (0.9 + nextDouble() * 0.2);
+
         return BigDecimal.valueOf(Math.max(0.05, premium)).setScale(2, RoundingMode.HALF_UP);
     }
 
     private BigDecimal generateImpliedVolatility(String underlying) {
         double baseVol;
-        if ("TSLA".equals(underlying)) baseVol = 45 + random.nextDouble() * 30;
-        else if ("SPX".equals(underlying)) baseVol = 12 + random.nextDouble() * 15;
-        else baseVol = 20 + random.nextDouble() * 25;
+        if ("TSLA".equals(underlying)) baseVol = 45 + nextDouble() * 30;
+        else if ("SPX".equals(underlying)) baseVol = 12 + nextDouble() * 15;
+        else baseVol = 20 + nextDouble() * 25;
         return BigDecimal.valueOf(baseVol).setScale(2, RoundingMode.HALF_UP);
     }
 
@@ -229,34 +260,29 @@ public class EquityOptionGenerator implements TradeGenerator {
     }
 
     private String selectCounterparty(BigDecimal notional) {
-        if (notional.compareTo(BigDecimal.valueOf(10_000_000)) > 0) return TIER1_BANKS[random.nextInt(TIER1_BANKS.length)];
-        return random.nextBoolean() ? TIER1_BANKS[random.nextInt(TIER1_BANKS.length)] : TIER2_BANKS[random.nextInt(TIER2_BANKS.length)];
+        if (notional.compareTo(BigDecimal.valueOf(10_000_000)) > 0) {
+            return TIER1_BANKS[nextInt(TIER1_BANKS.length)];
+        } else {
+            return nextBoolean() ?
+                    TIER1_BANKS[nextInt(TIER1_BANKS.length)] :
+                    TIER2_BANKS[nextInt(TIER2_BANKS.length)];
+        }
     }
 
-    // FIX: Booking based on Asset Region
     private String generateBook(String underlying) {
-        // Since all current assets are US-based:
         String[] usBooks = { "EQ_OPTIONS_NY", "EQ_OPTIONS_NY", "EQ_OPTIONS_US" };
 
-        // Indices can sometimes be booked globally
         if ("SPX".equals(underlying) || "NDX".equals(underlying)) {
             String[] globalBooks = { "EQ_OPTIONS_NY", "EQ_OPTIONS_LON" };
-            return globalBooks[random.nextInt(globalBooks.length)];
+            return globalBooks[nextInt(globalBooks.length)];
         }
 
-        return usBooks[random.nextInt(usBooks.length)];
+        return usBooks[nextInt(usBooks.length)];
     }
 
     private String generateTrader() {
         return faker.name().firstName() + " " + faker.name().lastName();
     }
-
-    private static final ExpiryConfig[] EXPIRY_CONFIGS = {
-            new ExpiryConfig("WEEKLY", 7, 20),
-            new ExpiryConfig("MONTHLY", 30, 50),
-            new ExpiryConfig("QUARTERLY", 90, 20),
-            new ExpiryConfig("LEAPS", 365, 10)
-    };
 
     private static class ExpiryConfig {
         final String type;
