@@ -19,8 +19,11 @@ import java.util.Objects;
         property = "tradeType"
 )
 @JsonSubTypes({
-        @JsonSubTypes.Type(value = EquitySwap.class, name = "EQUITY_SWAP")
-        // Other types will be added as we implement them
+        @JsonSubTypes.Type(value = EquitySwap.class, name = "EQUITY_SWAP"),
+        @JsonSubTypes.Type(value = InterestRateSwap.class, name = "INTEREST_RATE_SWAP"),
+        @JsonSubTypes.Type(value = FXForward.class, name = "FX_FORWARD"),
+        @JsonSubTypes.Type(value = EquityOption.class, name = "EQUITY_OPTION"),
+        @JsonSubTypes.Type(value = CreditDefaultSwap.class, name = "CREDIT_DEFAULT_SWAP")
 })
 public abstract class Trade {
 
