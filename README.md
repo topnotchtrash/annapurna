@@ -15,7 +15,7 @@ High-performance synthetic financial trade data generator for Java. Generates re
 
 ```xml
 <dependency>
-    <groupId>io.github.YOUR_USERNAME</groupId>
+    <groupId>io.github.topnotchtrash</groupId>
     <artifactId>annapurna</artifactId>
     <version>1.0.0</version>
 </dependency>

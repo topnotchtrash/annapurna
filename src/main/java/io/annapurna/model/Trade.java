@@ -11,7 +11,29 @@ import java.util.Objects;
 
 /**
  * Abstract base class for all trade types.
- * Contains common fields shared across all financial instruments.
+ *
+ * <p>Provides common fields shared across all financial instruments:
+ * <ul>
+ *   <li>Trade identification and dates</li>
+ *   <li>Notional amount and currency</li>
+ *   <li>Counterparty and booking information</li>
+ * </ul>
+ *
+ * <p><b>Subclasses:</b>
+ * <ul>
+ *   <li>{@link EquitySwap} - Equity return swaps</li>
+ *   <li>{@link InterestRateSwap} - Fixed-for-floating interest rate swaps</li>
+ *   <li>{@link FXForward} - Foreign exchange forward contracts</li>
+ *   <li>{@link EquityOption} - Equity call and put options</li>
+ *   <li>{@link CreditDefaultSwap} - Credit default swaps</li>
+ * </ul>
+ *
+ * <p><b>JSON Serialization:</b> Configured with Jackson annotations for
+ * polymorphic serialization. The {@code tradeType} field is automatically
+ * added during JSON serialization to identify the concrete type.
+ *
+ * @version 1.0.0
+ * @since 1.0.0
  */
 @JsonTypeInfo(
         use = JsonTypeInfo.Id.NAME,
