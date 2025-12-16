@@ -4,11 +4,14 @@ import io.annapurna.config.GeneratorConfig;
 import io.annapurna.generator.TradeFactory;
 import io.annapurna.model.Trade;
 import io.annapurna.model.TradeType;
+import io.annapurna.profile.DataProfile;
+import io.annapurna.profile.ProfileApplier;
 
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -24,6 +27,10 @@ import java.util.stream.IntStream;
  *         .fxForward(20)
  *         .option(15)
  *         .cds(5)
+ *     .dataProfile()
+ *         .clean(70)
+ *         .edgeCase(20)
+ *         .stress(10)
  *     .count(10000)
  *     .parallelism(8)
  *     .build()
@@ -37,6 +44,8 @@ public class AnnapurnaBuilder {
     private int parallelism = Runtime.getRuntime().availableProcessors();
     private LocalDate startDate = LocalDate.now().minusYears(1);
     private LocalDate endDate = LocalDate.now();
+    private Map<DataProfile, Integer> profileDistribution = new HashMap<>();
+    private boolean useProfiles = false;
 
     AnnapurnaBuilder() {
         // Package-private constructor
@@ -56,6 +65,14 @@ public class AnnapurnaBuilder {
      */
     public TradeTypeBuilder tradeTypes() {
         return new TradeTypeBuilder(this);
+    }
+
+    /**
+     * Configure data quality profile distribution.
+     */
+    public DataProfileBuilder dataProfile() {
+        this.useProfiles = true;
+        return new DataProfileBuilder(this);
     }
 
     /**
@@ -110,6 +127,8 @@ public class AnnapurnaBuilder {
                 .tradeTypeDistribution(tradeTypeDistribution)
                 .parallelism(parallelism)
                 .dateRange(startDate, endDate)
+                .profileDistribution(profileDistribution)
+                .useProfiles(useProfiles)
                 .build();
 
         return new BulkTradeGenerator(config);
@@ -180,6 +199,73 @@ public class AnnapurnaBuilder {
             return parent.dateRange(startDate, endDate);
         }
 
+        public DataProfileBuilder dataProfile() {
+            return parent.dataProfile();
+        }
+
+        public BulkTradeGenerator build() {
+            return parent.build();
+        }
+    }
+
+    /**
+     * Inner builder for configuring data quality profile distribution.
+     */
+    public static class DataProfileBuilder {
+        private final AnnapurnaBuilder parent;
+
+        DataProfileBuilder(AnnapurnaBuilder parent) {
+            this.parent = parent;
+            // Clear existing distribution
+            parent.profileDistribution.clear();
+        }
+
+        /**
+         * Set percentage of CLEAN trades (perfect data).
+         */
+        public DataProfileBuilder clean(int percentage) {
+            validatePercentage(percentage);
+            parent.profileDistribution.put(DataProfile.CLEAN, percentage);
+            return this;
+        }
+
+        /**
+         * Set percentage of EDGE_CASE trades (valid but unusual).
+         */
+        public DataProfileBuilder edgeCase(int percentage) {
+            validatePercentage(percentage);
+            parent.profileDistribution.put(DataProfile.EDGE_CASE, percentage);
+            return this;
+        }
+
+        /**
+         * Set percentage of STRESS trades (invalid/broken).
+         */
+        public DataProfileBuilder stress(int percentage) {
+            validatePercentage(percentage);
+            parent.profileDistribution.put(DataProfile.STRESS, percentage);
+            return this;
+        }
+
+        private void validatePercentage(int percentage) {
+            if (percentage < 0 || percentage > 100) {
+                throw new IllegalArgumentException(
+                        "Percentage must be between 0 and 100, got: " + percentage
+                );
+            }
+        }
+
+        /**
+         * Return to parent builder to continue configuration.
+         */
+        public AnnapurnaBuilder count(int count) {
+            return parent.count(count);
+        }
+
+        public AnnapurnaBuilder parallelism(int parallelism) {
+            return parent.parallelism(parallelism);
+        }
+
         public BulkTradeGenerator build() {
             return parent.build();
         }
@@ -196,18 +282,44 @@ public class AnnapurnaBuilder {
         }
 
         /**
-         * Generate trades in parallel.
+         * Generate trades in parallel with optional profile corruption.
          *
          * @return List of generated trades
          */
         public List<Trade> generate() {
             TradeFactory factory = new TradeFactory(config.getTradeTypeDistribution());
 
-            // Generate trades in parallel using streams
             return IntStream.range(0, config.getCount())
                     .parallel()
-                    .mapToObj(i -> factory.createGenerator().generate())
+                    .mapToObj(i -> {
+                        Trade trade = factory.createGenerator().generate();
+
+                        // Apply data profile corruption if configured
+                        if (config.isUseProfiles()) {
+                            DataProfile profile = selectProfile(config.getProfileDistribution());
+                            trade = ProfileApplier.apply(trade, profile);
+                        }
+
+                        return trade;
+                    })
                     .collect(Collectors.toList());
+        }
+
+        /**
+         * Select a data profile based on weighted distribution.
+         */
+        private DataProfile selectProfile(Map<DataProfile, Integer> distribution) {
+            int random = ThreadLocalRandom.current().nextInt(100);
+            int cumulative = 0;
+
+            for (Map.Entry<DataProfile, Integer> entry : distribution.entrySet()) {
+                cumulative += entry.getValue();
+                if (random < cumulative) {
+                    return entry.getKey();
+                }
+            }
+
+            return DataProfile.CLEAN; // Fallback
         }
     }
 }
